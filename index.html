@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Commander Deck Generator</title>
+  <title>Commander Deck Helper</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- If you added these for PWA earlier, you can uncomment them -->
+  <!-- <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#0b1020" /> -->
 
   <style>
     body {
@@ -120,6 +123,13 @@
       border-radius: 0.75rem;
       padding: 0.25rem;
       overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .card-image-wrapper:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.6);
     }
 
     .card-image-wrapper img {
@@ -134,25 +144,101 @@
       margin-top: 0.15rem;
       opacity: 0.9;
     }
+
+    /* Modal / pop-out styles */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      display: none; /* shown via JS */
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+    }
+
+    .modal {
+      background: #151a30;
+      border-radius: 1rem;
+      padding: 1rem 1.25rem;
+      max-width: 500px;
+      width: 90%;
+      max-height: 90vh;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+      position: relative;
+      overflow-y: auto;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 0.4rem;
+      right: 0.6rem;
+      border: none;
+      background: transparent;
+      color: #f5f5f5;
+      font-size: 1.4rem;
+      cursor: pointer;
+    }
+
+    .modal h2 {
+      margin-top: 0.2rem;
+      margin-bottom: 0.25rem;
+      font-size: 1.1rem;
+    }
+
+    .modal-type-line,
+    .modal-mana,
+    .modal-pt {
+      font-size: 0.85rem;
+      opacity: 0.9;
+      margin-bottom: 0.15rem;
+    }
+
+    .modal-mana {
+      font-weight: 600;
+    }
+
+    .modal-pt {
+      margin-bottom: 0.35rem;
+    }
+
+    .modal-image {
+      width: 100%;
+      border-radius: 0.75rem;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .modal-text {
+      font-size: 0.9rem;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
-  <h1>Commander Deck Generator</h1>
+  <h1>Commander Deck Helper</h1>
 
   <div class="card">
     <label for="commanderInput">Commander name</label>
     <input id="commanderInput" type="text" placeholder="e.g. The Locust God" />
     <div class="small">
-      Uses Scryfall; spelling matters. If there are multiple printings,
-      it will grab the default one.
+      Uses Scryfall + EDHREC rank via Scryfall; spelling matters. Shows the most-played EDH cards in your commander's colors.
     </div>
-    <button id="generateBtn">Generate Deck</button>
+    <button id="generateBtn">Show Top Cards</button>
     <div class="status" id="status"></div>
   </div>
 
   <div class="card" id="resultsCard" style="display:none;">
     <div id="commanderInfo"></div>
     <div id="deckOutput"></div>
+  </div>
+
+  <!-- Modal / pop-out -->
+  <div id="cardModal" class="modal-overlay">
+    <div class="modal" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeCardModal()">×</button>
+      <div id="modalContent"></div>
+    </div>
   </div>
 
   <script>
@@ -163,6 +249,10 @@
     const resultsCard = document.getElementById("resultsCard");
     const commanderInfoEl = document.getElementById("commanderInfo");
     const deckOutputEl = document.getElementById("deckOutput");
+    const cardModal = document.getElementById("cardModal");
+    const modalContent = document.getElementById("modalContent");
+
+    let lastDeckCards = [];
 
     async function fetchJson(url) {
       console.log("Fetching:", url);
@@ -173,28 +263,62 @@
       return res.json();
     }
 
-    function shuffleInPlace(array) {
-      for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-      }
-      return array;
+    function getCardImageUrl(card) {
+      // Prefer the card's own id; fall back to first face's id if needed
+      const id =
+        card.id ||
+        (card.card_faces && card.card_faces.length > 0
+          ? card.card_faces[0].id
+          : null);
+
+      if (!id) return null;
+
+      // Use Scryfall's image endpoint – works well from static hosts like GitHub Pages
+      return `https://api.scryfall.com/cards/${id}?format=image&version=normal`;
     }
 
-    function getCardImageUrl(card) {
-  // Prefer the card's own id; fall back to first face's id if needed
-  const id =
-    card.id ||
-    (card.card_faces && card.card_faces.length > 0
-      ? card.card_faces[0].id
-      : null);
+    function openCardModal(index) {
+      const card = lastDeckCards[index];
+      if (!card) return;
 
-  if (!id) return null;
+      const imgUrl = getCardImageUrl(card);
+      const name = card.name || "";
+      const typeLine = card.type_line || "";
+      const manaCost =
+        card.mana_cost ||
+        (card.card_faces && card.card_faces[0] && card.card_faces[0].mana_cost) ||
+        "";
+      const oracleText =
+        card.oracle_text ||
+        (card.card_faces && card.card_faces[0] && card.card_faces[0].oracle_text) ||
+        "";
+      const pt =
+        card.power && card.toughness ? `${card.power}/${card.toughness}` : "";
 
-  // Use Scryfall's image endpoint – works well from static hosts like GitHub Pages
-  return `https://api.scryfall.com/cards/${id}?format=image&version=normal`;
-}
+      modalContent.innerHTML = `
+        <h2>${name}</h2>
+        <div class="modal-type-line">${typeLine}</div>
+        ${manaCost ? `<div class="modal-mana">${manaCost}</div>` : ""}
+        ${pt ? `<div class="modal-pt">${pt}</div>` : ""}
+        ${imgUrl ? `<img src="${imgUrl}" alt="${name}" class="modal-image" />` : ""}
+        ${
+          oracleText
+            ? `<div class="modal-text">${oracleText.replace(/\n/g, "<br>")}</div>`
+            : ""
+        }
+      `;
 
+      cardModal.style.display = "flex";
+    }
+
+    function closeCardModal() {
+      cardModal.style.display = "none";
+    }
+
+    // Close modal if you click the dim background
+    cardModal.addEventListener("click", () => {
+      closeCardModal();
+    });
 
     async function generateDeck() {
       console.log("Generate button clicked");
@@ -204,11 +328,19 @@
         return;
       }
 
+      // Offline check (optional)
+      if (!navigator.onLine) {
+        statusEl.textContent =
+          "You're offline. The app can open, but I can't fetch new cards from Scryfall until you're online again.";
+        return;
+      }
+
       generateBtn.disabled = true;
       statusEl.textContent = "Looking up commander…";
       resultsCard.style.display = "none";
       commanderInfoEl.innerHTML = "";
       deckOutputEl.innerHTML = "";
+      lastDeckCards = [];
 
       try {
         // 1) Get commander card from Scryfall
@@ -235,23 +367,23 @@
           <div class="pill"><span>Type:</span> ${commanderCard.type_line}</div>
         `;
 
-        statusEl.textContent = "Fetching cards for that color identity…";
+        statusEl.textContent = "Getting top EDH cards in those colors (by EDHREC rank)…";
 
-        // 2) Build Scryfall search URL for EDH-legal cards with same color identity
-        let searchQuery = "legal%3Aedh";
+        // 2) Scryfall search: legal EDH, same color identity, sorted by EDHREC
+        let baseQuery = "legal:edh";
         if (colorIdStr) {
-          // simple: EDH-legal and matching color identity
-          searchQuery = "id%3D" + encodeURIComponent(colorIdStr.toLowerCase()) + "+legal%3Aedh";
+          baseQuery = `id:${colorIdStr.toLowerCase()} legal:edh`;
         }
 
         const searchUrl =
-          "https://api.scryfall.com/cards/search?order=released&dir=desc&unique=cards&q=" +
-          searchQuery;
+          "https://api.scryfall.com/cards/search?" +
+          "order=edhrec&dir=asc&unique=cards&q=" +
+          encodeURIComponent(baseQuery);
 
         const allCards = [];
         let pageUrl = searchUrl;
 
-        // 3) Walk pages until we have a decent pool or run out (limit to 400 to be safe)
+        // 3) Collect up to ~400 cards
         while (pageUrl && allCards.length < 400) {
           const pageData = await fetchJson(pageUrl);
           allCards.push(...pageData.data);
@@ -265,6 +397,7 @@
           return;
         }
 
+        // 4) Lands vs nonlands (keep EDHREC order)
         const lands = allCards.filter(c =>
           (c.type_line || "").toLowerCase().includes("land")
         );
@@ -280,44 +413,39 @@
           return;
         }
 
-        shuffleInPlace(nonlands);
-        shuffleInPlace(lands);
-
         const maxNonlands = 62;
         const maxLands = 37;
 
         const chosenNonlands = nonlands.slice(0, Math.min(maxNonlands, nonlands.length));
         const chosenLands = lands.slice(0, Math.min(maxLands, lands.length));
 
-        // 4) Build decklist text
+        // 5) Build deck-style text
         let deckText = "";
         deckText += "Commander\n";
         deckText += "1 " + commanderCard.name + "\n\n";
 
-        deckText += "Nonland Spells (" + chosenNonlands.length + ")\n";
+        deckText += "Top Nonland Cards (" + chosenNonlands.length + ")\n";
         for (const card of chosenNonlands) {
           deckText += "1 " + card.name + "\n";
         }
 
-        deckText += "\nLands (" + chosenLands.length + ")\n";
+        deckText += "\nTop Lands (" + chosenLands.length + ")\n";
         for (const card of chosenLands) {
           deckText += "1 " + card.name + "\n";
         }
 
-        // 5) Build images grid (commander + all chosen cards)
+        // 6) Build image grid (with modal click handlers)
         const allDeckCards = [commanderCard, ...chosenNonlands, ...chosenLands];
+        lastDeckCards = allDeckCards;
 
         const imageHtml = allDeckCards
-          .map(card => {
+          .map((card, index) => {
             const imgUrl = getCardImageUrl(card);
             if (!imgUrl) return "";
             const safeName = (card.name || "").replace(/"/g, "&quot;");
-            const link = card.scryfall_uri || "#";
             return `
-              <div class="card-image-wrapper">
-                <a href="${link}" target="_blank" rel="noopener">
-                  <img src="${imgUrl}" alt="${safeName}" loading="lazy" />
-                </a>
+              <div class="card-image-wrapper" onclick="openCardModal(${index})">
+                <img src="${imgUrl}" alt="${safeName}" loading="lazy" />
                 <div class="card-image-name">${safeName}</div>
               </div>
             `;
@@ -326,19 +454,21 @@
 
         resultsCard.style.display = "block";
         deckOutputEl.innerHTML = `
-          <div class="section-title">Decklist (copy-paste to Moxfield, Archidekt, etc.)</div>
+          <div class="section-title">
+            Most-Played EDH Cards in These Colors (via Scryfall + EDHREC rank)
+          </div>
           <pre>${deckText}</pre>
-          <div class="section-title">Card Images</div>
+          <div class="section-title">Card Images (tap a card for details)</div>
           <div class="image-grid">
             ${imageHtml}
           </div>
         `;
 
-        statusEl.textContent = "Done! Decklist and images generated.";
+        statusEl.textContent = "Done! Tap any card to view details without leaving the page.";
       } catch (err) {
         console.error("Error generating deck:", err);
         statusEl.textContent =
-          "Something went wrong (check the browser console for details — could be spelling, internet, or Scryfall).";
+          "Something went wrong (check spelling, internet connection, or Scryfall).";
       } finally {
         generateBtn.disabled = false;
       }
@@ -351,7 +481,19 @@
         generateDeck();
       }
     });
+
+    // If you have a service worker file for PWA, you can keep this:
+    /*
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("./service-worker.js")
+          .then((reg) => console.log("Service worker registered:", reg.scope))
+          .catch((err) => console.error("Service worker registration failed:", err));
+      });
+    }
+    */
   </script>
 </body>
 </html>
-
+``
