@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Commander Deck Generator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #0b1020;
+      color: #f5f5f5;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .card {
+      background: rgba(20, 26, 50, 0.95);
+      border-radius: 1rem;
+      padding: 1rem;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+      max-width: 600px;
+      margin: 0.75rem auto;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 0.25rem;
+      font-weight: 600;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 0.6rem 0.8rem;
+      border-radius: 0.75rem;
+      border: none;
+      outline: none;
+      font-size: 1rem;
+      background: #151a30;
+      color: #f5f5f5;
+    }
+
+    button {
+      margin-top: 0.75rem;
+      padding: 0.6rem 1rem;
+      border-radius: 999px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      background: #ffb155;
+      color: #40210c;
+      font-size: 0.95rem;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .small {
+      font-size: 0.8rem;
+      opacity: 0.8;
+    }
+
+    .status {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      min-height: 1.2em;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      background: #050812;
+      padding: 0.75rem;
+      border-radius: 0.75rem;
+      font-size: 0.85rem;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 0.15rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      margin-right: 0.35rem;
+      margin-bottom: 0.25rem;
+      background: #151a30;
+    }
+
+    .pill span {
+      opacity: 0.8;
+    }
+
+    .section-title {
+      margin-top: 0.5rem;
+      margin-bottom: 0.25rem;
+      font-weight: 600;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <h1>Commander Deck Generator</h1>
+
+  <div class="card">
+    <label for="commanderInput">Commander name</label>
+    <input id="commanderInput" type="text" placeholder="e.g. The Locust God" />
+    <div class="small">
+      Uses Scryfall; spelling matters. If there are multiple printings,
+      it will grab the default one.
+    </div>
+    <button id="generateBtn">Generate Deck</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="resultsCard" style="display:none;">
+    <div id="commanderInfo"></div>
+    <div id="deckOutput"></div>
+  </div>
+
+  <script>
+    console.log("Script loaded");
+
+    const generateBtn = document.getElementById("generateBtn");
+    const statusEl = document.getElementById("status");
+    const resultsCard = document.getElementById("resultsCard");
+    const commanderInfoEl = document.getElementById("commanderInfo");
+    const deckOutputEl = document.getElementById("deckOutput");
+
+    async function fetchJson(url) {
+      console.log("Fetching:", url);
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error("HTTP " + res.status);
+      }
+      return res.json();
+    }
+
+    function shuffleInPlace(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    }
+
+    async function generateDeck() {
+      console.log("Generate button clicked");
+      const commanderName = document.getElementById("commanderInput").value.trim();
+      if (!commanderName) {
+        statusEl.textContent = "Please type a commander name.";
+        return;
+      }
+
+      generateBtn.disabled = true;
+      statusEl.textContent = "Looking up commander…";
+      resultsCard.style.display = "none";
+      commanderInfoEl.innerHTML = "";
+      deckOutputEl.innerHTML = "";
+
+      try {
+        // 1) Get commander card from Scryfall
+        const commanderUrl =
+          "https://api.scryfall.com/cards/named?exact=" +
+          encodeURIComponent(commanderName) +
+          "&format=json";
+
+        const commanderCard = await fetchJson(commanderUrl);
+        console.log("Commander card:", commanderCard);
+
+        if (!commanderCard.legalities || commanderCard.legalities.commander !== "legal") {
+          statusEl.textContent = "That card is not Commander-legal as a commander (or name mismatch).";
+          generateBtn.disabled = false;
+          return;
+        }
+
+        const colorId = commanderCard.color_identity || [];
+        const colorIdStr = colorId.join("");
+
+        commanderInfoEl.innerHTML = `
+          <div class="pill"><strong>${commanderCard.name}</strong></div>
+          <div class="pill"><span>Color identity:</span> ${colorIdStr || "Colorless"}</div>
+          <div class="pill"><span>Type:</span> ${commanderCard.type_line}</div>
+        `;
+
+        statusEl.textContent = "Fetching cards for that color identity…";
+
+        // 2) Build Scryfall search URL for EDH-legal cards with same color identity
+        let searchQuery = "legal%3Aedh";
+        if (colorIdStr) {
+          searchQuery = "id%3D" + encodeURIComponent(colorIdStr) + "+legal%3Aedh";
+        }
+
+        const searchUrl =
+          "https://api.scryfall.com/cards/search?order=released&dir=desc&unique=cards&q=" +
+          searchQuery;
+
+        const allCards = [];
+        let pageUrl = searchUrl;
+
+        // 3) Walk pages until we have a decent pool or run out
+        while (pageUrl && allCards.length < 600) {
+          const pageData = await fetchJson(pageUrl);
+          allCards.push(...pageData.data);
+          console.log("Fetched page; total cards:", allCards.length);
+          pageUrl = pageData.has_more ? pageData.next_page : null;
+        }
+
+        if (allCards.length === 0) {
+          statusEl.textContent = "No matching cards found for that color identity.";
+          generateBtn.disabled = false;
+          return;
+        }
+
+        const lands = allCards.filter(c =>
+          (c.type_line || "").toLowerCase().includes("land")
+        );
+        const nonlands = allCards.filter(c =>
+          !(c.type_line || "").toLowerCase().includes("land")
+        );
+
+        console.log("Lands:", lands.length, "Nonlands:", nonlands.length);
+
+        shuffleInPlace(nonlands);
+        shuffleInPlace(lands);
+
+        const maxNonlands = 62;
+        const maxLands = 37;
+
+        const chosenNonlands = nonlands.slice(0, maxNonlands);
+        const chosenLands = lands.slice(0, maxLands);
+
+        // 4) Build decklist text
+        let deckText = "";
+        deckText += "Commander\n";
+        deckText += "1 " + commanderCard.name + "\n\n";
+
+        deckText += "Nonland Spells (" + chosenNonlands.length + ")\n";
+        for (const card of chosenNonlands) {
+          deckText += "1 " + card.name + "\n";
+        }
+
+        deckText += "\nLands (" + chosenLands.length + ")\n";
+        for (const card of chosenLands) {
+          deckText += "1 " + card.name + "\n";
+        }
+
+        resultsCard.style.display = "block";
+        deckOutputEl.innerHTML = `
+          <div class="section-title">Generated Deck (copy-paste to Moxfield, Archidekt, etc.)</div>
+          <pre>${deckText}</pre>
+        `;
+
+        statusEl.textContent = "Done! You can copy the list below.";
+      } catch (err) {
+        console.error("Error generating deck:", err);
+        statusEl.textContent =
+          "Something went wrong (check spelling, internet connection, or Scryfall being down).";
+      } finally {
+        generateBtn.disabled = false;
+      }
+    }
+
+    generateBtn.addEventListener("click", generateDeck);
+
+    document.getElementById("commanderInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        generateDeck();
+      }
+    });
+  </script>
+</body>
+</html>
