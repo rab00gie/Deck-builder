@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <title>Commander Deck Helper</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- If you created these for PWA, keep them -->
+  <!-- PWA bits (optional but you already have them) -->
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#0b1020" />
 
@@ -37,18 +37,52 @@
       font-weight: 600;
     }
 
-   input[type="text"] {
-  box-sizing: border-box;
-  width: 96%;
-  padding: 0.6rem 0.8rem;
-  border-radius: 0.75rem;
-  border: none;
-  outline: none;
-  font-size: 1rem;
-  background: #151a30;
-  color: #f5f5f5;
-}
+    .autocomplete {
+      position: relative;
+      width: 100%;
+    }
 
+    input[type="text"] {
+      box-sizing: border-box;
+      width: 96%;
+      padding: 0.6rem 0.8rem;
+      border-radius: 0.75rem;
+      border: none;
+      outline: none;
+      font-size: 1rem;
+      background: #151a30;
+      color: #f5f5f5;
+    }
+
+    .suggestions {
+      position: absolute;
+      left: 0;
+      right: 4%;
+      top: 100%;
+      margin-top: 0.2rem;
+      background: #151a30;
+      border-radius: 0.75rem;
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.65);
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+    }
+
+    .suggestion-item {
+      padding: 0.4rem 0.7rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .suggestion-item:hover {
+      background: #202642;
+    }
+
+    .small {
+      font-size: 0.8rem;
+      opacity: 0.8;
+    }
 
     button {
       margin-top: 0.75rem;
@@ -65,11 +99,6 @@
     button:disabled {
       opacity: 0.6;
       cursor: not-allowed;
-    }
-
-    .small {
-      font-size: 0.8rem;
-      opacity: 0.8;
     }
 
     .status {
@@ -222,7 +251,10 @@
 
   <div class="card">
     <label for="commanderInput">Commander name</label>
-    <input id="commanderInput" type="text" placeholder="e.g. Kambal, Profiteering Mayor" />
+    <div class="autocomplete">
+      <input id="commanderInput" type="text" placeholder="e.g. Kambal, Profiteering Mayor" />
+      <div id="suggestions" class="suggestions"></div>
+    </div>
     <div class="small">
       Uses Scryfall + EDHREC rank via Scryfall; spelling matters. Shows the most-played EDH cards in your commander's colors.
     </div>
@@ -253,8 +285,11 @@
     const deckOutputEl = document.getElementById("deckOutput");
     const cardModal = document.getElementById("cardModal");
     const modalContent = document.getElementById("modalContent");
+    const commanderInput = document.getElementById("commanderInput");
+    const suggestionsEl = document.getElementById("suggestions");
 
     let lastDeckCards = [];
+    let autocompleteTimeout = null;
 
     async function fetchJson(url) {
       console.log("Fetching:", url);
@@ -319,13 +354,93 @@
       closeCardModal();
     });
 
+    // ---- Autocomplete helpers ----
+
+    async function fetchAutocompleteSuggestions(query) {
+      const url =
+        "https://api.scryfall.com/cards/autocomplete?q=" +
+        encodeURIComponent(query);
+      const data = await fetchJson(url);
+      // data.data is an array of card name strings
+      return data.data || [];
+    }
+
+    function clearSuggestions() {
+      suggestionsEl.innerHTML = "";
+      suggestionsEl.style.display = "none";
+    }
+
+    function showSuggestions(names) {
+      if (!names.length) {
+        clearSuggestions();
+        return;
+      }
+
+      const itemsHtml = names
+        .slice(0, 10)
+        .map(
+          (name) => `
+        <div class="suggestion-item" data-name="${name.replace(/"/g, "&quot;")}">
+          ${name}
+        </div>
+      `
+        )
+        .join("");
+
+      suggestionsEl.innerHTML = itemsHtml;
+      suggestionsEl.style.display = "block";
+    }
+
+    suggestionsEl.addEventListener("click", (e) => {
+      const item = e.target.closest(".suggestion-item");
+      if (!item) return;
+      const name = item.getAttribute("data-name");
+      commanderInput.value = name;
+      clearSuggestions();
+      commanderInput.focus();
+    });
+
+    commanderInput.addEventListener("input", () => {
+      const query = commanderInput.value.trim();
+
+      if (autocompleteTimeout) {
+        clearTimeout(autocompleteTimeout);
+      }
+
+      if (query.length < 2) {
+        clearSuggestions();
+        return;
+      }
+
+      autocompleteTimeout = setTimeout(async () => {
+        try {
+          const suggestions = await fetchAutocompleteSuggestions(query);
+          showSuggestions(suggestions);
+        } catch (err) {
+          console.error("Autocomplete error:", err);
+          clearSuggestions();
+        }
+      }, 250); // debounce so we don't hammer Scryfall
+    });
+
+    // Hide suggestions shortly after blur so clicks still register
+    commanderInput.addEventListener("blur", () => {
+      setTimeout(() => {
+        clearSuggestions();
+      }, 200);
+    });
+
+    // ---- Main deck generation ----
+
     async function generateDeck() {
       console.log("Generate button clicked");
-      const commanderName = document.getElementById("commanderInput").value.trim();
+      const commanderName = commanderInput.value.trim();
       if (!commanderName) {
         statusEl.textContent = "Please type a commander name.";
         return;
       }
+
+      clearSuggestions();
 
       generateBtn.disabled = true;
       statusEl.textContent = "Looking up commander…";
@@ -469,7 +584,7 @@
 
     generateBtn.addEventListener("click", generateDeck);
 
-    document.getElementById("commanderInput").addEventListener("keydown", (e) => {
+    commanderInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         generateDeck();
       }
@@ -487,5 +602,3 @@
   </script>
 </body>
 </html>
-
-
