@@ -4,9 +4,9 @@
   <meta charset="UTF-8" />
   <title>Commander Deck Helper</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- If you created these for PWA, keep them -->
   <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#0b1020" />
-
 
   <style>
     body {
@@ -264,7 +264,6 @@
     }
 
     function getCardImageUrl(card) {
-      // Prefer the card's own id; fall back to first face's id if needed
       const id =
         card.id ||
         (card.card_faces && card.card_faces.length > 0
@@ -273,7 +272,6 @@
 
       if (!id) return null;
 
-      // Use Scryfall's image endpoint – works well from static hosts like GitHub Pages
       return `https://api.scryfall.com/cards/${id}?format=image&version=normal`;
     }
 
@@ -315,7 +313,6 @@
       cardModal.style.display = "none";
     }
 
-    // Close modal if you click the dim background
     cardModal.addEventListener("click", () => {
       closeCardModal();
     });
@@ -328,13 +325,6 @@
         return;
       }
 
-      // Offline check (optional)
-      if (!navigator.onLine) {
-        statusEl.textContent =
-          "You're offline. The app can open, but I can't fetch new cards from Scryfall until you're online again.";
-        return;
-      }
-
       generateBtn.disabled = true;
       statusEl.textContent = "Looking up commander…";
       resultsCard.style.display = "none";
@@ -343,7 +333,7 @@
       lastDeckCards = [];
 
       try {
-        // 1) Get commander card from Scryfall
+        // 1) Commander lookup
         const commanderUrl =
           "https://api.scryfall.com/cards/named?exact=" +
           encodeURIComponent(commanderName) +
@@ -353,7 +343,8 @@
         console.log("Commander card:", commanderCard);
 
         if (!commanderCard.legalities || commanderCard.legalities.commander !== "legal") {
-          statusEl.textContent = "That card is not Commander-legal as a commander (or name mismatch).";
+          statusEl.textContent =
+            "That card is not Commander-legal as a commander (or the name doesn't match exactly).";
           generateBtn.disabled = false;
           return;
         }
@@ -367,9 +358,9 @@
           <div class="pill"><span>Type:</span> ${commanderCard.type_line}</div>
         `;
 
-        statusEl.textContent = "Getting top EDH cards in those colors (by EDHREC rank)…";
+        statusEl.textContent = "Getting top EDH cards in those colors (EDHREC rank via Scryfall)…";
 
-        // 2) Scryfall search: legal EDH, same color identity, sorted by EDHREC
+        // 2) Scryfall search query
         let baseQuery = "legal:edh";
         if (colorIdStr) {
           baseQuery = `id:${colorIdStr.toLowerCase()} legal:edh`;
@@ -419,7 +410,7 @@
         const chosenNonlands = nonlands.slice(0, Math.min(maxNonlands, nonlands.length));
         const chosenLands = lands.slice(0, Math.min(maxLands, lands.length));
 
-        // 5) Build deck-style text
+        // 5) Deck-style text
         let deckText = "";
         deckText += "Commander\n";
         deckText += "1 " + commanderCard.name + "\n\n";
@@ -434,7 +425,7 @@
           deckText += "1 " + card.name + "\n";
         }
 
-        // 6) Build image grid (with modal click handlers)
+        // 6) Image grid + modal indices
         const allDeckCards = [commanderCard, ...chosenNonlands, ...chosenLands];
         lastDeckCards = allDeckCards;
 
@@ -464,11 +455,11 @@
           </div>
         `;
 
-        statusEl.textContent = "Done! Tap any card to view details without leaving the page.";
+        statusEl.textContent = "Done! Tap any card to view details.";
       } catch (err) {
         console.error("Error generating deck:", err);
         statusEl.textContent =
-          "Something went wrong (check spelling, internet connection, or Scryfall).";
+          "Something went wrong (check your internet or try a different commander name).";
       } finally {
         generateBtn.disabled = false;
       }
@@ -482,7 +473,7 @@
       }
     });
 
-    
+    // Service worker registration for PWA (safe to leave; ignored if file missing)
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => {
         navigator.serviceWorker
@@ -491,9 +482,6 @@
           .catch((err) => console.error("Service worker registration failed:", err));
       });
     }
-    */
   </script>
 </body>
 </html>
-``
-
