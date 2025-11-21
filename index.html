@@ -182,25 +182,19 @@
     }
 
     function getCardImageUrl(card) {
-      if (card.image_uris) {
-        return (
-          card.image_uris.normal ||
-          card.image_uris.large ||
-          card.image_uris.small
-        );
-      }
-      if (card.card_faces && card.card_faces.length > 0) {
-        const face = card.card_faces[0];
-        if (face.image_uris) {
-          return (
-            face.image_uris.normal ||
-            face.image_uris.large ||
-            face.image_uris.small
-          );
-        }
-      }
-      return null;
-    }
+  // Prefer the card's own id; fall back to first face's id if needed
+  const id =
+    card.id ||
+    (card.card_faces && card.card_faces.length > 0
+      ? card.card_faces[0].id
+      : null);
+
+  if (!id) return null;
+
+  // Use Scryfall's image endpoint – works well from static hosts like GitHub Pages
+  return `https://api.scryfall.com/cards/${id}?format=image&version=normal`;
+}
+
 
     async function generateDeck() {
       console.log("Generate button clicked");
@@ -360,3 +354,4 @@
   </script>
 </body>
 </html>
+
