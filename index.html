@@ -24,7 +24,7 @@
       border-radius: 1rem;
       padding: 1rem;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
-      max-width: 600px;
+      max-width: 900px;
       margin: 0.75rem auto;
     }
 
@@ -80,7 +80,7 @@
       padding: 0.75rem;
       border-radius: 0.75rem;
       font-size: 0.85rem;
-      max-height: 60vh;
+      max-height: 50vh;
       overflow-y: auto;
     }
 
@@ -106,6 +106,33 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
       opacity: 0.85;
+    }
+
+    .image-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .card-image-wrapper {
+      background: #050812;
+      border-radius: 0.75rem;
+      padding: 0.25rem;
+      overflow: hidden;
+    }
+
+    .card-image-wrapper img {
+      width: 100%;
+      display: block;
+      border-radius: 0.5rem;
+    }
+
+    .card-image-name {
+      font-size: 0.7rem;
+      text-align: center;
+      margin-top: 0.15rem;
+      opacity: 0.9;
     }
   </style>
 </head>
@@ -141,7 +168,7 @@
       console.log("Fetching:", url);
       const res = await fetch(url);
       if (!res.ok) {
-        throw new Error("HTTP " + res.status);
+        throw new Error("HTTP " + res.status + " for " + url);
       }
       return res.json();
     }
@@ -152,6 +179,27 @@
         [array[i], array[j]] = [array[j], array[i]];
       }
       return array;
+    }
+
+    function getCardImageUrl(card) {
+      if (card.image_uris) {
+        return (
+          card.image_uris.normal ||
+          card.image_uris.large ||
+          card.image_uris.small
+        );
+      }
+      if (card.card_faces && card.card_faces.length > 0) {
+        const face = card.card_faces[0];
+        if (face.image_uris) {
+          return (
+            face.image_uris.normal ||
+            face.image_uris.large ||
+            face.image_uris.small
+          );
+        }
+      }
+      return null;
     }
 
     async function generateDeck() {
@@ -198,7 +246,8 @@
         // 2) Build Scryfall search URL for EDH-legal cards with same color identity
         let searchQuery = "legal%3Aedh";
         if (colorIdStr) {
-          searchQuery = "id%3D" + encodeURIComponent(colorIdStr) + "+legal%3Aedh";
+          // simple: EDH-legal and matching color identity
+          searchQuery = "id%3D" + encodeURIComponent(colorIdStr.toLowerCase()) + "+legal%3Aedh";
         }
 
         const searchUrl =
@@ -208,8 +257,8 @@
         const allCards = [];
         let pageUrl = searchUrl;
 
-        // 3) Walk pages until we have a decent pool or run out
-        while (pageUrl && allCards.length < 600) {
+        // 3) Walk pages until we have a decent pool or run out (limit to 400 to be safe)
+        while (pageUrl && allCards.length < 400) {
           const pageData = await fetchJson(pageUrl);
           allCards.push(...pageData.data);
           console.log("Fetched page; total cards:", allCards.length);
@@ -231,14 +280,20 @@
 
         console.log("Lands:", lands.length, "Nonlands:", nonlands.length);
 
+        if (nonlands.length === 0) {
+          statusEl.textContent = "Found no nonland spells; try another commander.";
+          generateBtn.disabled = false;
+          return;
+        }
+
         shuffleInPlace(nonlands);
         shuffleInPlace(lands);
 
         const maxNonlands = 62;
         const maxLands = 37;
 
-        const chosenNonlands = nonlands.slice(0, maxNonlands);
-        const chosenLands = lands.slice(0, maxLands);
+        const chosenNonlands = nonlands.slice(0, Math.min(maxNonlands, nonlands.length));
+        const chosenLands = lands.slice(0, Math.min(maxLands, lands.length));
 
         // 4) Build decklist text
         let deckText = "";
@@ -255,17 +310,41 @@
           deckText += "1 " + card.name + "\n";
         }
 
+        // 5) Build images grid (commander + all chosen cards)
+        const allDeckCards = [commanderCard, ...chosenNonlands, ...chosenLands];
+
+        const imageHtml = allDeckCards
+          .map(card => {
+            const imgUrl = getCardImageUrl(card);
+            if (!imgUrl) return "";
+            const safeName = (card.name || "").replace(/"/g, "&quot;");
+            const link = card.scryfall_uri || "#";
+            return `
+              <div class="card-image-wrapper">
+                <a href="${link}" target="_blank" rel="noopener">
+                  <img src="${imgUrl}" alt="${safeName}" loading="lazy" />
+                </a>
+                <div class="card-image-name">${safeName}</div>
+              </div>
+            `;
+          })
+          .join("");
+
         resultsCard.style.display = "block";
         deckOutputEl.innerHTML = `
-          <div class="section-title">Generated Deck (copy-paste to Moxfield, Archidekt, etc.)</div>
+          <div class="section-title">Decklist (copy-paste to Moxfield, Archidekt, etc.)</div>
           <pre>${deckText}</pre>
+          <div class="section-title">Card Images</div>
+          <div class="image-grid">
+            ${imageHtml}
+          </div>
         `;
 
-        statusEl.textContent = "Done! You can copy the list below.";
+        statusEl.textContent = "Done! Decklist and images generated.";
       } catch (err) {
         console.error("Error generating deck:", err);
         statusEl.textContent =
-          "Something went wrong (check spelling, internet connection, or Scryfall being down).";
+          "Something went wrong (check the browser console for details — could be spelling, internet, or Scryfall).";
       } finally {
         generateBtn.disabled = false;
       }
@@ -281,3 +360,4 @@
   </script>
 </body>
 </html>
+
