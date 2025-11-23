@@ -256,8 +256,8 @@
       <div id="suggestions" class="suggestions"></div>
     </div>
     <div class="small">
-      Uses Scryfall + EDHREC rank via Scryfall; spelling matters. Shows the most-played EDH cards in your commander's colors.
-    </div>
+  Start typing and choose a suggestion. Only EDH-legal commanders are shown. Then I’ll pull the most-played EDH cards in those colors.
+</div>
     <button id="generateBtn">Show Top Cards</button>
     <div class="status" id="status"></div>
   </div>
@@ -357,13 +357,30 @@
     // ---- Autocomplete helpers ----
 
     async function fetchAutocompleteSuggestions(query) {
-      const url =
-        "https://api.scryfall.com/cards/autocomplete?q=" +
-        encodeURIComponent(query);
-      const data = await fetchJson(url);
-      // data.data is an array of card name strings
-      return data.data || [];
+  // Only EDH-legal commanders
+  const searchQuery = `is:commander legal:edh ${query}`;
+  const url =
+    "https://api.scryfall.com/cards/search?order=name&q=" +
+    encodeURIComponent(searchQuery);
+
+  const data = await fetchJson(url);
+
+  const names = [];
+  const seen = new Set();
+
+  for (const card of data.data || []) {
+    // Extra safety check: commander-legal
+    if (card.legalities && card.legalities.commander === "legal") {
+      if (!seen.has(card.name)) {
+        seen.add(card.name);
+        names.push(card.name);
+      }
     }
+    if (names.length >= 15) break; // cap the number of suggestions
+  }
+
+  return names;
+}
 
     function clearSuggestions() {
       suggestionsEl.innerHTML = "";
